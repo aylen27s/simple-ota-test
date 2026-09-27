@@ -22,8 +22,8 @@
 
 // Defino nombre de la red Wifi y su psw
 #define WIFI_SSID "MYSSID" 
-#define WIFI_PASS "MYPSSS" 
-#define BIN_URL "url-test"
+#define WIFI_PASS "MIPSD" 
+#define BIN_URL "https://github.com/aylen27s/simple-ota-test/blob/master/main/public-bin/simple-ota-test.bin"
 
 static esp_netif_t *sta_netif = NULL;
 static const char* TAG ="NODO-ESP32";
@@ -33,10 +33,12 @@ static void tarea_v1(void *pvParameters){
     while(1){
         if(counter == 10){
             counter=0;
-            vTaskDelay(pdMS_TO_TICKS(10000)); //Espero 10 segundos. Durante este tiempo entiendo que toma control tarea de update OTA
+            ESP_LOGI(TAG,"V1 cuenta hasta 10. Acá debería ejecutarse OTA.");
+            //simple_ota_example_task();
         }
         ESP_LOGI(TAG,"%d",counter);
         counter++;
+        vTaskDelay(pdMS_TO_TICKS(1000)); 
     }
     
 }
@@ -77,7 +79,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-void simple_ota_example_task(void *pvParameter)
+void simple_ota_example_task(void)
 {
     ESP_LOGI(TAG, "Starting OTA example task");
     esp_http_client_config_t config = {
@@ -115,7 +117,7 @@ static void onWifiDisconnect(void* arg, esp_event_base_t event_base, int32_t eve
     esp_wifi_connect();
 }
 
-void connectEspToWifi(void)
+esp_err_t connectEspToWifi(void)
 {
     esp_netif_init();
     esp_event_loop_create_default();
@@ -127,7 +129,7 @@ void connectEspToWifi(void)
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &onGotIp, NULL);
     esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &onWifiDisconnect, NULL);
 
-    // esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_set_mode(WIFI_MODE_STA);
 
     wifi_config_t wifi_config = {
         .sta = {
@@ -139,10 +141,16 @@ void connectEspToWifi(void)
 
     esp_wifi_set_config(WIFI_IF_STA , &wifi_config);
 
+    esp_err_t err = esp_wifi_start();
+    if(err != ESP_OK)
+        return err;
+
+    err = esp_wifi_connect();
+    if(err != ESP_OK)
+        return err;
     
-    esp_wifi_start();
-    esp_wifi_connect();
     ESP_LOGI(TAG, "WiFi inicializado exitosamente en SSID: %s", WIFI_SSID);
+    return ESP_OK;
 }
 
 void app_main(void)
@@ -157,7 +165,11 @@ void app_main(void)
 
     /* Cnofigurar y conectar WIFI*/
     ESP_LOGI("WIFI","Conectando WiFi en SSID %s ...", WIFI_SSID);
-    connectEspToWifi();
+    esp_err_t err_wifi= connectEspToWifi();
+    if( err_wifi != ESP_OK){
+        ESP_LOGE(TAG,"No se pudo inicializar WIFI. Abortando. Err %d",err_wifi);
+        return;
+    }
+        
     xTaskCreate(tarea_v1, "t-v1", 4096, NULL, 5 ,NULL);
-    xTaskCreate(simple_ota_example_task, "ota_example_task", 8192, NULL, 4, NULL);
 }
