@@ -7,11 +7,14 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "string.h"
+#include "esp_flash_partitions.h"
+#include "esp_partition.h"
 
 //Para utilizar funciones OTA
 #include "esp_ota_ops.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
+#include "esp_crt_bundle.h"
 
 // Para configurar la conexión Wifi
 
@@ -22,26 +25,24 @@
 
 // Defino nombre de la red Wifi y su psw
 #define WIFI_SSID "MYSSID" 
-#define WIFI_PASS "MIPSD" 
-#define BIN_URL "https://github.com/aylen27s/simple-ota-test/blob/master/main/public-bin/simple-ota-test.bin"
+#define WIFI_PASS "MYPASS" 
+#define BIN_URL "https://raw.githubusercontent.com/aylen27s/simple-ota-test/master/main/public-bin/simple-ota-test.bin"
+#define HASH_LEN 32 /* SHA-256 digest length */
+
 
 static esp_netif_t *sta_netif = NULL;
-static const char* TAG ="NODO-ESP32";
+static const char* TAG ="[V2]NODO-ESP32";
 
-static void tarea_v1(void *pvParameters){
-    uint8_t counter = 0;
-    while(1){
-        if(counter == 10){
-            counter=0;
-            ESP_LOGI(TAG,"V1 cuenta hasta 10. Acá debería ejecutarse OTA.");
-            //simple_ota_example_task();
-        }
-        ESP_LOGI(TAG,"%d",counter);
-        counter++;
-        vTaskDelay(pdMS_TO_TICKS(1000)); 
+static void print_sha256(const uint8_t *image_hash, const char *label)
+{
+    char hash_print[HASH_LEN * 2 + 1];
+    hash_print[HASH_LEN * 2] = 0;
+    for (int i = 0; i < HASH_LEN; ++i) {
+        sprintf(&hash_print[i * 2], "%02x", image_hash[i]);
     }
-    
+    ESP_LOGI(TAG, "%s %s", label, hash_print);
 }
+
 esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 {
     switch (evt->event_id) {
@@ -85,13 +86,18 @@ void simple_ota_example_task(void)
     esp_http_client_config_t config = {
         .url = BIN_URL, 
         .event_handler = _http_event_handler,
+        .crt_bundle_attach = esp_crt_bundle_attach,
         .keep_alive_enable = true,
+        .disable_auto_redirect = false, 
     };
     esp_https_ota_config_t ota_config = {
         .http_config = &config,
     };
+
     ESP_LOGI(TAG, "Attempting to download update from %s", config.url);
+
     esp_err_t ret = esp_https_ota(&ota_config);
+
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "OTA Succeed, Rebooting...");
         esp_restart();
@@ -104,7 +110,8 @@ void simple_ota_example_task(void)
 }
 
 /* ----------------- Conexión WiFi ----------------- */
-static void onGotIp(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+static void onGotIp(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
+{
     ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
     const esp_netif_ip_info_t* ip_info = &event->ip_info;
     ESP_LOGI("NETWORK", "IP: " IPSTR, IP2STR(&ip_info->ip));
@@ -112,7 +119,8 @@ static void onGotIp(void* arg, esp_event_base_t event_base, int32_t event_id, vo
     ESP_LOGI("NETWORK", "Netmask: " IPSTR, IP2STR(&ip_info->netmask));
 }
 
-static void onWifiDisconnect(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+static void onWifiDisconnect(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
+{
     ESP_LOGW(TAG, "WiFi desconectado. Reintentando...");
     esp_wifi_connect();
 }
@@ -153,9 +161,47 @@ esp_err_t connectEspToWifi(void)
     return ESP_OK;
 }
 
+static void tarea_v1(void *pvParameters)
+{
+    uint8_t counter = 0;
+    while(1){
+        if(counter == 15){
+            counter=0;
+            ESP_LOGI(TAG,"V2 cuenta hasta 15 y ejecuta OTA. Vuelve a la v anterior sin ota.");
+            simple_ota_example_task();
+        }
+        ESP_LOGI(TAG,"%d",counter);
+        counter++;
+        vTaskDelay(pdMS_TO_TICKS(1000)); 
+    }
+    
+}
+
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Inicializando. Versión de firmware 1.0");
+    ESP_LOGI(TAG, "Inicializando. Versión de firmware 2.0");
+
+    // uint8_t sha_256[HASH_LEN] = { 0 };
+    // esp_partition_t partition;
+
+    // // get sha256 digest for the partition table
+    // partition.address   = ESP_PARTITION_TABLE_OFFSET;
+    // partition.size      = ESP_PARTITION_TABLE_MAX_LEN;
+    // partition.type      = ESP_PARTITION_TYPE_DATA;
+    // esp_partition_get_sha256(&partition, sha_256);
+    // print_sha256(sha_256, "SHA-256 for the partition table: ");
+
+    // // get sha256 digest for bootloader
+    // partition.address   = ESP_BOOTLOADER_OFFSET;
+    // partition.size      = ESP_PARTITION_TABLE_OFFSET;
+    // partition.type      = ESP_PARTITION_TYPE_APP;
+    // esp_partition_get_sha256(&partition, sha_256);
+    // print_sha256(sha_256, "SHA-256 for bootloader: ");
+
+    // // get sha256 digest for running partition
+    // esp_partition_get_sha256(esp_ota_get_running_partition(), sha_256);
+    // print_sha256(sha_256, "SHA-256 for current firmware: ");
+
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -170,6 +216,6 @@ void app_main(void)
         ESP_LOGE(TAG,"No se pudo inicializar WIFI. Abortando. Err %d",err_wifi);
         return;
     }
-        
+    vTaskDelay(pdMS_TO_TICKS(5000)); 
     xTaskCreate(tarea_v1, "t-v1", 4096, NULL, 5 ,NULL);
 }
